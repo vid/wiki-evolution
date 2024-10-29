@@ -2,7 +2,7 @@
 FROM node:slim
 
 RUN apt-get update && \
-	apt-get install -y gource ffmpeg xvfb
+	apt-get install -y gource
 
 WORKDIR /opt/wiki-evolution
 

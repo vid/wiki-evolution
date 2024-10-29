@@ -1,169 +1,67 @@
 #!/usr/bin/env node
 /**
- * Example:
- *  wiki2gource 8bit.wikia.com | sort > examples/8bit.gource
+ * Usage: wiki2gource <wiki domain> [path] [editsCompression]
  */
 
 'use strict';
 
-var async = require('async'),
-	nodemw = require('nodemw'),
-	CategoriesRanker = require('../').CategoriesRanker,
-	ColorsRanker = require('../').ColorsRanker,
-	client;
+const path = require('path');
+const fs = require('fs');
 
-// general settings
-var config = {
-	categoriesLimit: -1,
-	nodeColorFrom: '#4c4b4b',
-	nodeColorTo: '#70b8ff'
-};
+const { CategoriesRanker, ColorsRanker } = require('./lib/rankers');
+const { Processor } = require('./lib/Processor');
 
-// init the MediaWiki client
-var server = process.argv[2] || false;
+const domain = process.argv[2];
+const wikiPath = process.argv[3] !== undefined ? process.argv[3] : ((domain.match(/\.wikia\.org$/) || domain.match(/\.fandom\.com$/) ? '' : '/w'));
+const editsCompression = parseInt(process.argv[4], 10) || 0;
 
-// for large wikis allow to include every N-th edit only
-var editsCompression = parseInt(process.argv[3], 10) || 0;
-
-if (!server) {
-	console.error('Usage: wiki2gource <wiki domain> [editsCompression]');
+if (!domain) {
+	console.error('Usage: wiki2gource <wiki domain> [path] [editsCompression]');
 	process.exit(1);
 }
 
-// use a proper path based on MW provider
-var path;
+const config = {
+	categoriesLimit: -1,
+	nodeColorFrom: '#4c4b4b',
+	nodeColorTo: '#70b8ff',
+	editsCompression
+};
 
-if (server.match(/\.wikia\.org$/) || server.match(/\.fandom\.com$/)) {
-	path = ''; // wikia / fandom
-}
-else {
-	path = '/w'; // Wikipedia default
-}
-
-client = new nodemw({
-	server: server,
-	path: path,
-	debug: false
-});
-
-// get the wiki-specific data
-// @see https://github.com/caolan/async#paralleltasks-callback
-console.error('Getting wiki statistics...');
-
-if (editsCompression) {
-	console.error('Edits compression of %d will be applied', editsCompression);
-}
-
-async.parallel(
-	{
-		// get wiki statistics
-		stats: function (callback) {
-			client.getSiteStats(callback);
-		},
-
-		// get the list of all pages
-		pages: function (callback) {
-			client.getAllPages(callback);
-		},
-
-		// get the list of top categories
-		topCategories: function (callback) {
-			client.getQueryPage('Mostlinkedcategories', callback);
-		}
-	},
-	function(err, results) {
-		var edits = [];
-
-		if (err) {
-			process.exit(2);
+// Main process
+(async () => {
+	try {
+		console.info(`Getting wiki statistics from ${domain} with path ${wikiPath}...`);
+		if (editsCompression) {
+			console.info(`Edits compression of ${editsCompression} will be applied`);
 		}
 
-		// get top 1000 categories and filter out the smallest ones (with less than 2% of articles)
-		var categoryMinValue = results.pages.length / 50;
-		categoryMinValue = Math.min(categoryMinValue, 50);
-		categoryMinValue = Math.max(categoryMinValue, 5);
+		const p = new Processor(domain, wikiPath, config);
+		const logFilePath = path.join(p.outputDir, 'log.gource');
+		const sortedLogFilePath = logFilePath.replace('.gource', '.sorted.gource');
 
-		results.topCategories = results.topCategories.
-			slice(0, 1000).
-			filter(function (item) {
-				if (item.value < categoryMinValue) {
-					//console.error("Filtered out %s category (too small - %d articles)", item.title, item.value);
-					return false;
-				}
+		// don't do these if sortedLogFilePath already exists
+		if (true || !fs.existsSync(sortedLogFilePath)) {
+			const results = await p.fetchWikiData();
+			const edits = [];
+			const categoriesRanker = new CategoriesRanker(results.topCategories);
+			const colorsRanker = new ColorsRanker(results.statistics, config.nodeColorFrom, config.nodeColorTo);
 
-				return true;
-			}).
-			map(function (item) {
-				// <page value="11" ns="14" title="Kategoria:Atlantic Airways" />
-				return item.title.replace(/^[^:]+:/, '');
-			});
+			if (results.pages.length < 1) {
+				console.error('No articles found.');
+				process.exit(3);
+			}
+			console.info('Fetching revisions for articles...\n', results.pages.length, 'articles found.');
 
-		// print out some stats
-		console.error('This wikis has %d edits on %d articles', results.stats.edits, results.pages.length);
-		console.error('Using %d categories to build a wiki tree', results.topCategories.length);
+			await Promise.all(results.pages.map(page => p.processPage(page, edits, categoriesRanker, colorsRanker)));
 
-		// set up rankers
-		var categoriesRanker = new CategoriesRanker(results.topCategories),
-			colorsRanker = new ColorsRanker(results.stats, config.nodeColorFrom, config.nodeColorTo);
+			await p.createLogFile(logFilePath, edits);
 
-		console.error('\nFetching revisions for all articles...\n');
+			await p.sortLogFile(logFilePath, sortedLogFilePath);
+		}
 
-		// fetch revisions for all pages
-		results.pages.forEach(function(page) {
-			client.getArticleRevisions(page.title, function(err, revisions) {
-				if (err) {
-					process.exit(4);
-				}
-
-				// get article categories
-				client.getArticleCategories(page.title, function(err, categories) {
-					if (err) {
-						process.exit(5);
-					}
-
-					var articlePath,
-						color;
-
-					// remove category namespace prefix
-					categories = categories.map(function (item) {
-						return item.replace(/^[^:]+:/, '');
-					});
-
-					articlePath = '/' + categoriesRanker.getArticlePath(page.title, categories, config.categoriesLimit);
-					color = colorsRanker.getColorForEdit(revisions.length - 1);
-
-					console.error('%s [%d edits]...', articlePath, revisions.length);
-
-					if (editsCompression) {
-						revisions = revisions.filter(function(item, index) {
-							return index % editsCompression === 0;
-						});
-
-						console.error('%s [%d edits after compression]...', articlePath, revisions.length);
-					}
-
-					// generate entries for all revisions
-					revisions.forEach(function(rev) {
-						var edit = {
-							timestamp: Date.parse(rev.timestamp) / 1000,
-							author: rev.user,
-							type: (rev.parentid === 0) ? 'A' : 'M', // article created / edited
-							path: articlePath,
-							color: color
-						};
-						edits.push(edit);
-
-						// print-out the entry
-						var out = [];
-
-						Object.keys(edit).forEach(function(key) {
-							out.push(edit[key]);
-						});
-
-						console.log(out.join('|'));
-					});
-				});
-			});
-		});
+		await p.generateGourceVisualization(sortedLogFilePath, domain);
+	} catch (err) {
+		console.error(err);
+		process.exit(2);
 	}
-);
+})();

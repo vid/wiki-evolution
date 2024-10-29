@@ -4,21 +4,60 @@ wiki-evolution
 
 Visualize evolution of your [MediaWiki](https://www.mediawiki.org/wiki/MediaWiki) based site
 
-## Docker-based run
+# wiki-evolution
+[![Node.js CI](https://github.com/macbre/wiki-evolution/actions/workflows/node.js.yml/badge.svg)](https://github.com/macbre/wiki-evolution/actions/workflows/node.js.yml)
 
-The easiest way to use this tool is via Docker:
+Visualize evolution of your [MediaWiki](https://www.mediawiki.org/wiki/MediaWiki) based site.
 
+## Docker-based Run
+
+The easiest way to use this tool is via Docker. You can build the Docker image locally from the provided `Dockerfile` and then run it:
+
+### Build the Docker Image
+```bash
+docker build -t wiki-evolution .
 ```
-docker pull ghcr.io/macbre/wiki-evolution:latest
 
-docker run --name=wiki-evolution --rm -it -v $(pwd)/data:/tmp/wiki-evolution ghcr.io/macbre/wiki-evolution:latest bash
+### Run the Docker Container
+```bash
+docker run --name=wiki-evolution --rm -it -v $(pwd)/data:/tmp/wiki-evolution wiki-evolution bash
 ```
 
-And then inside the container run:
+Once inside the container, run:
+```bash
+./bin/wiki-evolution.sh <wiki domain>
+```
 
+Gource log files and the rendered WebM movie will be stored in the `data/` directory on your host.
+
+## Use `npx`
+
+Use the following command execute `wiki-evolution`:
+
+```bash
+npx wiki-evolution <wiki domain>
 ```
-nobody@3e68fe7411f8:/opt/wiki-evolution# ./bin/wiki-evolution.sh <wiki domain>
+
+Your system will need `gource` installed.
+
+## From the repo
+
+1. Clone the repo
+
+2. **Install Dependencies**:
+   Ensure you have `gource` installed on your system. Refer to the Requirements section for installation commands.
+
+3. **Run the Command**:
+```bash
+./bin/wiki2gource.js <wiki domain>
 ```
+
+Alternatively, if you want to use `npx` to execute `wiki2gource.js`, you can run:
+```bash
+npx wiki2gource <wiki domain>
+```
+
+
 
 Gource log files and the rendered webm movie will be stored in the `data/` directory on your host.
 

@@ -4,7 +4,7 @@
 var assert = require('assert');
 
 describe('CategoriesRanker', function() {
-	var CategoriesRanker = require('../').CategoriesRanker;
+	var CategoriesRanker = require('../bin/lib/rankers').CategoriesRanker;
 	var ranker = new CategoriesRanker([
 		'foo',
 		'bar',
